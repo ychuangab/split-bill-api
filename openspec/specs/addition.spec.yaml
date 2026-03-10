@@ -1,0 +1,141 @@
+title: 分帳小幫手 (Split Bill Helper)
+description: |
+  這是一個示範用的 spec，描述一個解決日常分帳問題的小工具 API。
+  使用者可上傳每個人實際支付的金額，API 回傳建議的結算轉帳清單，讓大家能在最少筆數下互相結清。
+
+  文件與註解盡量使用中文，方便閱讀與教學。
+
+endpoints:
+  - path: /split
+    method: POST
+    description: |
+      計算分帳結算建議。
+      輸入：參與者的名稱與各自已付金額（可為小數）。
+      輸出：建議的轉帳列表（from -> to, amount），以及每人應付或應收的淨額。
+
+    request:
+      content-type: application/json
+      body:
+        type: object
+        properties:
+          currency:
+            type: string
+            description: 幣別（例如 TWD、USD）。
+            example: TWD
+          participants:
+            type: array
+            description: 參與分帳的人與其已付金額
+            items:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 參與者名稱
+                paid:
+                  type: number
+                  description: 此人實際已支付的金額
+              required: [name, paid]
+        required: [participants]
+
+    responses:
+      200:
+        description: 成功回傳結算建議
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                total:
+                  type: number
+                  description: 所有人支付金額總和
+                per_person_share:
+                  type: number
+                  description: 平均每人應分攤的金額
+                balances:
+                  type: array
+                  description: 每人淨額（負=欠款，正=應收）
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      balance:
+                        type: number
+                        description: 淨額（paid - share）
+                settlements:
+                  type: array
+                  description: 建議的轉帳清單，盡量以最少筆數結清
+                  items:
+                    type: object
+                    properties:
+                      from:
+                        type: string
+                      to:
+                        type: string
+                      amount:
+                        type: number
+
+examples:
+  - name: three-people-split
+    request:
+      path: /split
+      method: POST
+      body:
+        currency: TWD
+        participants:
+          - name: Alice
+            paid: 120
+          - name: Bob
+            paid: 80
+          - name: Carol
+            paid: 100
+    expected_response:
+      status: 200
+      body:
+        total: 300
+        per_person_share: 100
+        balances:
+          - name: Alice
+            balance: 20
+          - name: Bob
+            balance: -20
+          - name: Carol
+            balance: 0
+        settlements:
+          - from: Bob
+            to: Alice
+            amount: 20
+
+  - name: uneven-split
+    request:
+      path: /split
+      method: POST
+      body:
+        currency: TWD
+        participants:
+          - name: 阿明
+            paid: 0
+          - name: 小美
+            paid: 250
+          - name: 大華
+            paid: 130
+    expected_response:
+      status: 200
+      body:
+        total: 380
+        per_person_share: 126.6667
+        balances:
+          - name: 阿明
+            balance: -126.6667
+          - name: 小美
+            balance: 123.3333
+          - name: 大華
+            balance: 3.3333
+        settlements:
+          - from: 阿明
+            to: 小美
+            amount: 123.33
+          - from: 阿明
+            to: 大華
+            amount: 3.33
+
