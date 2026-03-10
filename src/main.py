@@ -1,9 +1,19 @@
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from .models import SplitRequest, SplitResponse, Balance
 from .calculator import calculate_balances, calculate_settlements
 
 app = FastAPI(title="分帳小幫手", version="1.0.0")
+
+static_dir = Path(__file__).parent.parent / "static"
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/")
+def index():
+    return RedirectResponse(url="/static/index.html")
 
 
 @app.post("/split", response_model=SplitResponse)

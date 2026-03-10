@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分帳小幫手</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; padding: 2rem; color: #333; }
+    h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.6rem; }
+    .card { background: #fff; border-radius: 8px; padding: 1.5rem; max-width: 560px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+    label { font-size: .85rem; color: #666; display: block; margin-bottom: .25rem; }
+    input { width: 100%; padding: .5rem .75rem; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; }
+    input:focus { outline: none; border-color: #4f8ef7; }
+
+    .currency-row { margin-bottom: 1.25rem; }
+    .currency-row input { width: 120px; }
+
+    .participant-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+    .participant-row input[name="name"] { flex: 1; }
+    .participant-row input[name="paid"] { width: 100px; }
+    .btn-del { background: none; border: none; cursor: pointer; color: #aaa; font-size: 1.2rem; padding: 0 .25rem; }
+    .btn-del:hover { color: #e55; }
+
+    .actions { display: flex; gap: .75rem; margin-top: 1rem; }
+    .btn { padding: .55rem 1.2rem; border: none; border-radius: 6px; cursor: pointer; font-size: .95rem; }
+    .btn-add { background: #f0f4ff; color: #4f8ef7; border: 1px solid #c5d8ff; }
+    .btn-add:hover { background: #e0eaff; }
+    .btn-calc { background: #4f8ef7; color: #fff; }
+    .btn-calc:hover { background: #3a7de8; }
+
+    #error { color: #e55; margin-top: 1rem; font-size: .9rem; display: none; }
+
+    #result { margin-top: 1.5rem; display: none; }
+    #result h2 { font-size: 1.1rem; margin-bottom: .75rem; border-bottom: 1px solid #eee; padding-bottom: .5rem; }
+    .summary { display: flex; gap: 1.5rem; margin-bottom: 1rem; }
+    .summary div { text-align: center; }
+    .summary .val { font-size: 1.4rem; font-weight: bold; color: #4f8ef7; }
+    .summary .lbl { font-size: .75rem; color: #888; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; margin-bottom: 1rem; }
+    th { text-align: left; color: #888; font-weight: normal; padding: .3rem .5rem; border-bottom: 1px solid #eee; }
+    td { padding: .4rem .5rem; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .pos { color: #2b9e5a; }
+    .neg { color: #e55; }
+    .no-transfer { color: #888; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <h1>分帳小幫手</h1>
+  <div class="card">
+    <div class="currency-row">
+      <label>幣別</label>
+      <input id="currency" type="text" value="TWD" placeholder="TWD">
+    </div>
+
+    <label>參與者</label>
+    <div id="participants"></div>
+
+    <div class="actions">
+      <button class="btn btn-add" onclick="addRow()">＋ 新增參與者</button>
+      <button class="btn btn-calc" onclick="calculate()">計算</button>
+    </div>
+
+    <div id="error"></div>
+
+    <div id="result">
+      <h2>結算結果</h2>
+      <div class="summary">
+        <div><div class="val" id="r-total"></div><div class="lbl">總金額</div></div>
+        <div><div class="val" id="r-share"></div><div class="lbl">每人應分攤</div></div>
+      </div>
+
+      <h2>每人淨額</h2>
+      <table>
+        <thead><tr><th>姓名</th><th>淨額</th></tr></thead>
+        <tbody id="r-balances"></tbody>
+      </table>
+
+      <h2>建議轉帳</h2>
+      <div id="r-settlements"></div>
+    </div>
+  </div>
+
+  <script>
+    function addRow(name = '', paid = '') {
+      const div = document.createElement('div');
+      div.className = 'participant-row';
+      div.innerHTML = `
+        <input name="name" type="text" placeholder="姓名" value="${name}">
+        <input name="paid" type="number" min="0" step="0.01" placeholder="已付金額" value="${paid}">
+        <button class="btn-del" onclick="this.parentElement.remove()" title="刪除">✕</button>
+      `;
+      document.getElementById('participants').appendChild(div);
+    }
+
+    async function calculate() {
+      const errorEl = document.getElementById('error');
+      const resultEl = document.getElementById('result');
+      errorEl.style.display = 'none';
+      resultEl.style.display = 'none';
+
+      const rows = document.querySelectorAll('.participant-row');
+      const participants = [];
+      for (const row of rows) {
+        const name = row.querySelector('[name="name"]').value.trim();
+        const paid = parseFloat(row.querySelector('[name="paid"]').value);
+        if (!name || isNaN(paid)) {
+          showError('請填寫所有參與者的姓名與金額。');
+          return;
+        }
+        participants.push({ name, paid });
+      }
+      if (participants.length === 0) {
+        showError('請至少新增一位參與者。');
+        return;
+      }
+
+      const currency = document.getElementById('currency').value.trim() || undefined;
+      try {
+        const res = await fetch('/split', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currency, participants }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          showError(`錯誤：${data.detail || res.statusText}`);
+          return;
+        }
+        const data = await res.json();
+        renderResult(data, currency);
+      } catch (e) {
+        showError('無法連線到伺服器，請確認 API 是否正在執行。');
+      }
+    }
+
+    function renderResult(data, currency) {
+      const cur = currency || '';
+      document.getElementById('r-total').textContent = `${cur} ${data.total.toFixed(2)}`;
+      document.getElementById('r-share').textContent = `${cur} ${data.per_person_share.toFixed(2)}`;
+
+      const balTbody = document.getElementById('r-balances');
+      balTbody.innerHTML = data.balances.map(b => {
+        const cls = b.balance > 0 ? 'pos' : b.balance < 0 ? 'neg' : '';
+        const sign = b.balance > 0 ? '+' : '';
+        return `<tr><td>${b.name}</td><td class="${cls}">${sign}${b.balance.toFixed(2)}</td></tr>`;
+      }).join('');
+
+      const settlEl = document.getElementById('r-settlements');
+      if (data.settlements.length === 0) {
+        settlEl.innerHTML = '<p class="no-transfer">無需轉帳，大家已平均分攤。</p>';
+      } else {
+        settlEl.innerHTML = `<table>
+          <thead><tr><th>從</th><th>轉給</th><th>金額</th></tr></thead>
+          <tbody>${data.settlements.map(s =>
+            `<tr><td>${s.from}</td><td>${s.to}</td><td>${cur} ${s.amount.toFixed(2)}</td></tr>`
+          ).join('')}</tbody>
+        </table>`;
+      }
+
+      document.getElementById('result').style.display = 'block';
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    // 初始兩列
+    addRow();
+    addRow();
+  </script>
+</body>
+</html>
